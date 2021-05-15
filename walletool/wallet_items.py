@@ -1,9 +1,10 @@
 # -- encoding: UTF-8 --
-import socket
-from binascii import hexlify
+
+import binascii
+import hashlib
 
 from walletool.bc_data_stream import BCDataStream
-from walletool.utils import privkey_to_secret, secret_to_asecret, public_key_to_bc_address
+from walletool.utils import privkey_to_secret, secret_to_asecret, public_key_to_bc_address, b58_chars, p
 
 
 def parse_TxIn(vds):
@@ -56,15 +57,68 @@ def parse_BlockLocator(vds):
 
 
 def parse_setting(setting, vds):
-    if setting[0] == "f":  # flag (boolean) settings
+    if setting[0] == "f":
         return str(vds.read_boolean())
-    elif setting[0:4] == "addr":  # CAddress
+    elif setting[0:4] == "addr":
         return parse_CAddress(vds)
     elif setting == "nTransactionFee":
         return vds.read_int64()
     elif setting == "nLimitProcessors":
         return vds.read_int32()
     return {'unknown': vds}
+
+
+def decompress_pubkey(pk):
+    x = int.from_bytes(pk[1:33], byteorder='big')
+    y_sq = (pow(x, 3, p) + 7) % p
+    y = pow(y_sq, (p + 1) // 4, p)
+    if y % 2 != pk[0] % 2:
+        y = p - y
+    y = y.to_bytes(32, byteorder='big')
+    return b'\x04' + pk[1:33] + y
+
+
+def sha256(s):
+    return hashlib.new('sha256', s).digest()
+
+
+def ripemd160(s):
+    return hashlib.new('ripemd160', s).digest()
+
+
+def hash256(s):
+    return sha256(sha256(s))
+
+
+def hash160(s):
+    return ripemd160(sha256(s))
+
+
+def encode(b):
+    n = int('0x0' + binascii.hexlify(b).decode('utf8'), 16)
+
+    res = []
+    while n > 0:
+        n, r = divmod (n, 58)
+        res.append(b58_chars[r])
+    res = ''.join(res[::-1])
+
+    import sys
+    czero = b'\x00'
+    if sys.version > '3':
+        czero = 0
+    pad = 0
+    for c in b:
+        if c == czero: pad += 1
+        else: break
+    return b58_chars[0] * pad + res
+
+
+def to_address(b, version):
+    data = version + b
+    checksum = hash256(data)[0:4]
+    data += checksum
+    return encode(data)
 
 
 class WalletItem:
@@ -171,6 +225,12 @@ class KeyWalletItem(WalletItem):
     def get_address(self, version):
         return public_key_to_bc_address(self.data['public_key'], version=version)
 
+    def get_uncompressed(self, version):
+        v = bytes([version])
+        pk_hex = binascii.hexlify(self.data['public_key']).decode()
+        pubkey = decompress_pubkey(binascii.unhexlify(pk_hex))
+        return to_address(hash160(pubkey), v)
+        
     def get_private_key(self, version):
         secret = privkey_to_secret(self.data['private_key'])
         asecret = secret_to_asecret(secret, version=version)
