@@ -1,6 +1,8 @@
 # -- encoding: UTF-8 --
 import hashlib
 
+p = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
+
 b58_chars = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
 b58_base = len(b58_chars)
 
@@ -20,8 +22,6 @@ def b58encode(v):
         long_value = div
     result = b58_chars[long_value] + result
 
-    # Bitcoin does a little leading-zero-compression:
-    # leading 0-bytes in the input become leading-1s
     nPad = 0
     for c in v:
         if c == 0:
